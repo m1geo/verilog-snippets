@@ -41,9 +41,9 @@ module max6951_m1geo
     assign slow_clock = clk_div[2]; // Divided clock twice as much as that's what you were doing manually
     
     // I like naming my state machine states
-    parameter s_IDLE = 0;
-    parameter s_SENDING = 1;
-    parameter s_DONE = 2;
+    parameter s_IDLE = 2'h0;
+    parameter s_SENDING = 2'h1;
+    parameter s_DONE = 2'h2;
 
     ////
     //// Bit FSM
@@ -57,10 +57,13 @@ module max6951_m1geo
     wire update_data;
 
     // update_data pulsed high for a single slow clock cycle when data has finished sending
-    assign update_data = (bit_fsm_state == s_DONE);
+    assign update_data = (bit_fsm_state == s_DONE) ? 1'b1 : 1'b0;
 
     // clock is clocking out data as long as we are not idle
-    assign DI_CKS = (bit_fsm_state == s_SENDING);
+    assign DI_CKS = (bit_fsm_state == s_SENDING) ? slow_clock: 1'b0;
+    
+    // CS is low as long as we are sending data
+    assign DI_nCS = (bit_fsm_state == s_SENDING) ? 1'b0 : 1'b1;
 
     // if we are sending, send the data bit indicated by r_bitCounter, otherwise send 0
     assign DI_DTA = (bit_fsm_state == s_SENDING) ? reg_data_t[r_bitCounter]: 1'b0;
@@ -68,22 +71,16 @@ module max6951_m1geo
 
     always @(negedge slow_clock or negedge resetn) begin
         if (~resetn) begin
-            bit_fsm_state <= S_IDLE;
+            bit_fsm_state <= s_IDLE;
             reg_data_t <= 'b0;
         end else begin
         
             case (bit_fsm_state)
                 s_IDLE: begin
-                    if (reg_data != reg_data_t) begin
-                        // We have new data to send
-                        reg_data_t <= reg_data;
-                        bit_fsm_state <= s_SENDING; 
-                        r_bitCounter <= 4'd15;
-                    end else begin
-                        reg_data_t <= reg_data_t;
-                        bit_fsm_state <= s_IDLE;
-                        r_bitCounter <= 4'b0;
-                    end
+                    // Prepare to send data
+                    reg_data_t <= reg_data;
+                    bit_fsm_state <= s_SENDING; 
+                    r_bitCounter <= 4'd15;
                 end
 
                 s_SENDING: begin
@@ -108,7 +105,7 @@ module max6951_m1geo
     ////
     //// Control FSM
     ////
-    reg [3:0] ctrl_fsm_counter; // holds states
+    reg [3:0] ctrl_fsm_counter = 0; // holds states
     always @(posedge update_data or negedge resetn) begin
         if (~resetn)
             ctrl_fsm_counter <= 'b0; // from reset, send everything.
