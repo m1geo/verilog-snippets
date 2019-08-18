@@ -38,12 +38,12 @@ module max6951_m1geo
         else
             clk_div <= clk_div + 1'b1;
     end
-    assign slow_clock = clk_div[2]; // Divided clock twice as much as that's what you were doing manually
+    assign slow_clock = clk_div[2];
     
-    // I like naming my state machine states
-    parameter s_IDLE = 2'h0;
-    parameter s_SENDING = 2'h1;
-    parameter s_DONE = 2'h2;
+    // named state machine states
+    localparam s_IDLE = 2'h0;
+    localparam s_SENDING = 2'h1;
+    localparam s_DONE = 2'h2;
 
     ////
     //// Bit FSM
