@@ -21,226 +21,91 @@ module max6951_m1geo
     input resetn,      // negative edge async reset
     input [31:0] data, // to display. 0xDEADBEEF will put DEADBEEF on the display
     input [7:0] dps,   // display 7:0 decimal points.
-    output reg DI_nCS, //
-    output reg DI_DTA, // 3 lines to display controller
-    output reg DI_CKS  //
+    output DI_nCS, //
+    output DI_DTA, // 3 lines to display controller
+    output DI_CKS  //
     );
     
     ////
-    //// Slow Clock (div 4)
+    //// Slow Clock (div 8)
     ////   slow_clock must be less 26 MHz. See datasheet for timings. 
     ////
     wire slow_clock;
-    reg [1:0] clk_div;
+    reg [2:0] clk_div;
     always @(posedge clk or negedge resetn) begin
         if (~resetn)
             clk_div <= 'b0;
         else
             clk_div <= clk_div + 1'b1;
     end
-    assign slow_clock = clk_div[1];
+    assign slow_clock = clk_div[2]; // Divided clock twice as much as that's what you were doing manually
     
+    // I like naming my state machine states
+    parameter s_IDLE = 2'h0;
+    parameter s_SENDING = 2'h1;
+    parameter s_DONE = 2'h2;
+
     ////
     //// Bit FSM
     ////     Code toggles "update_data" when "reg_data" can be updated.
     ////     Use this 'clock' to run another FSM to setup the registers.
     ////
     reg [15:0] reg_data;        // data to write to the display
-    reg [15:0] reg_data_t;         // temporary, only updated when bit_fsm_counter is ready
-    reg [5:0] bit_fsm_counter;  // holds states.
-    reg update_data;
-    always @(posedge slow_clock or negedge resetn) begin
+    reg [15:0] reg_data_t;         // holds the current data being sent while sending, when idle holds the last value sent
+    reg [2:0] bit_fsm_state;  // holds states.
+    reg [3:0] r_bitCounter; //which bit is being currently sent
+    wire update_data;
+
+    // update_data pulsed high for a single slow clock cycle when data has finished sending
+    assign update_data = (bit_fsm_state == s_DONE) ? 1'b1 : 1'b0;
+
+    // clock is clocking out data as long as we are not idle
+    assign DI_CKS = (bit_fsm_state == s_SENDING) ? slow_clock: 1'b0;
+    
+    // CS is low as long as we are sending data
+    assign DI_nCS = (bit_fsm_state == s_SENDING) ? 1'b0 : 1'b1;
+
+    // if we are sending, send the data bit indicated by r_bitCounter, otherwise send 0
+    assign DI_DTA = (bit_fsm_state == s_SENDING) ? reg_data_t[r_bitCounter]: 1'b0;
+
+
+    always @(negedge slow_clock or negedge resetn) begin
         if (~resetn) begin
-            bit_fsm_counter <= 'b0;
+            bit_fsm_state <= s_IDLE;
             reg_data_t <= 'b0;
         end else begin
-        if (bit_fsm_counter >= 33)
-            bit_fsm_counter <= 'b0;
-        else
-            bit_fsm_counter <= bit_fsm_counter + 1'b1;
-        end
         
-        case (bit_fsm_counter)
-            default : begin // reset state, ensure clock low
-                DI_CKS <= 1'b0;
-                DI_nCS <= 1'b1;
-                DI_DTA <= 1'b0;
-                reg_data_t <= reg_data;
-                update_data <= 1'b0;
-            end
-            1 : begin // take low low, set data 15
-                DI_CKS <= 1'b0;
-                DI_nCS <= 1'b0;
-                DI_DTA <= reg_data_t[15];
-            end
-            2 : begin // clock in data 15
-                DI_CKS <= 1'b1;
-                DI_nCS <= 1'b0;
-                DI_DTA <= reg_data_t[15];
-            end
-            3 : begin // take low low, set data 14
-                DI_CKS <= 1'b0;
-                DI_nCS <= 1'b0;
-                DI_DTA <= reg_data_t[14];
-            end
-            4 : begin // clock in data 14
-                DI_CKS <= 1'b1;
-                DI_nCS <= 1'b0;
-                DI_DTA <= reg_data_t[14];
-            end
-            5 : begin // take low low, set data 13
-                DI_CKS <= 1'b0;
-                DI_nCS <= 1'b0;
-                DI_DTA <= reg_data_t[13];
-            end
-            6 : begin // clock in data 13
-                DI_CKS <= 1'b1;
-                DI_nCS <= 1'b0;
-                DI_DTA <= reg_data_t[13];
-            end
-            7 : begin // take low low, set data 12
-                DI_CKS <= 1'b0;
-                DI_nCS <= 1'b0;
-                DI_DTA <= reg_data_t[12];
-            end
-            8 : begin // clock in data 12
-                DI_CKS <= 1'b1;
-                DI_nCS <= 1'b0;
-                DI_DTA <= reg_data_t[12];
-            end
-            9 : begin // take low low, set data 11
-                DI_CKS <= 1'b0;
-                DI_nCS <= 1'b0;
-                DI_DTA <= reg_data_t[11];
-            end
-            10 : begin // clock in data 11
-                DI_CKS <= 1'b1;
-                DI_nCS <= 1'b0;
-                DI_DTA <= reg_data_t[11];
-            end
-            11 : begin // take low low, set data 10
-                DI_CKS <= 1'b0;
-                DI_nCS <= 1'b0;
-                DI_DTA <= reg_data_t[10];
-            end
-            12 : begin // clock in data 10
-                DI_CKS <= 1'b1;
-                DI_nCS <= 1'b0;
-                DI_DTA <= reg_data_t[10];
-            end
-            13 : begin // take low low, set data 9
-                DI_CKS <= 1'b0;
-                DI_nCS <= 1'b0;
-                DI_DTA <= reg_data_t[9];
-            end
-            14 : begin // clock in data 9
-                DI_CKS <= 1'b1;
-                DI_nCS <= 1'b0;
-                DI_DTA <= reg_data_t[9];
-            end
-            15 : begin // take low low, set data 8
-                DI_CKS <= 1'b0;
-                DI_nCS <= 1'b0;
-                DI_DTA <= reg_data_t[8];
-            end
-            16 : begin // clock in data 8
-                DI_CKS <= 1'b1;
-                DI_nCS <= 1'b0;
-                DI_DTA <= reg_data_t[8];
-            end
-            17 : begin // take low low, set data 7
-                DI_CKS <= 1'b0;
-                DI_nCS <= 1'b0;
-                DI_DTA <= reg_data_t[7];
-            end
-            18 : begin // clock in data 7
-                DI_CKS <= 1'b1;
-                DI_nCS <= 1'b0;
-                DI_DTA <= reg_data_t[7];
-            end
-            19 : begin // take low low, set data 6
-                DI_CKS <= 1'b0;
-                DI_nCS <= 1'b0;
-                DI_DTA <= reg_data_t[6];
-            end
-            20 : begin // clock in data 6
-                DI_CKS <= 1'b1;
-                DI_nCS <= 1'b0;
-                DI_DTA <= reg_data_t[6];
-            end
-            21 : begin // take low low, set data 5
-                DI_CKS <= 1'b0;
-                DI_nCS <= 1'b0;
-                DI_DTA <= reg_data_t[5];
-            end
-            22 : begin // clock in data 5
-                DI_CKS <= 1'b1;
-                DI_nCS <= 1'b0;
-                DI_DTA <= reg_data_t[5];
-            end
-            23 : begin // take low low, set data 4
-                DI_CKS <= 1'b0;
-                DI_nCS <= 1'b0;
-                DI_DTA <= reg_data_t[4];
-            end
-            24 : begin // clock in data 4
-                DI_CKS <= 1'b1;
-                DI_nCS <= 1'b0;
-                DI_DTA <= reg_data_t[4];
-            end
-            25 : begin // take low low, set data 3
-                DI_CKS <= 1'b0;
-                DI_nCS <= 1'b0;
-                DI_DTA <= reg_data_t[3];
-            end
-            26 : begin // clock in data 3
-                DI_CKS <= 1'b1;
-                DI_nCS <= 1'b0;
-                DI_DTA <= reg_data_t[3];
-            end
-            27 : begin // take low low, set data 2
-                DI_CKS <= 1'b0;
-                DI_nCS <= 1'b0;
-                DI_DTA <= reg_data_t[2];
-            end
-            28 : begin // clock in data 2
-                DI_CKS <= 1'b1;
-                DI_nCS <= 1'b0;
-                DI_DTA <= reg_data_t[2];
-            end
-            29 : begin // take low low, set data 1
-                DI_CKS <= 1'b0;
-                DI_nCS <= 1'b0;
-                DI_DTA <= reg_data_t[1];
-            end
-            30 : begin // clock in data 1
-                DI_CKS <= 1'b1;
-                DI_nCS <= 1'b0;
-                DI_DTA <= reg_data_t[1];
-            end
-            31 : begin // take low low, set data 0
-                DI_CKS <= 1'b0;
-                DI_nCS <= 1'b0;
-                DI_DTA <= reg_data_t[0];
-            end
-            32 : begin // clock in data 0
-                DI_CKS <= 1'b1;
-                DI_nCS <= 1'b0;
-                DI_DTA <= reg_data_t[0];
-            end
-            33 : begin // latch data in, nCS high
-                DI_CKS <= 1'b1;
-                DI_nCS <= 1'b1;
-                DI_DTA <= 1'b0;
-                update_data <= 1'b1;
-            end
-        endcase
+            case (bit_fsm_state)
+                s_IDLE: begin
+                    // Prepare to send data
+                    reg_data_t <= reg_data;
+                    bit_fsm_state <= s_SENDING; 
+                    r_bitCounter <= 4'd15;
+                end
+
+                s_SENDING: begin
+                    if (r_bitCounter == 0) begin
+                        bit_fsm_state <= s_DONE;
+                        r_bitCounter <= 4'b0;
+                    end else begin
+                        bit_fsm_state <= s_SENDING;
+                        r_bitCounter <= r_bitCounter - 1;
+                    end
+                end
+
+                s_DONE: begin
+                    // single iteration in this state to pulse update_data
+                    bit_fsm_state <= s_IDLE;
+                end
+
+            endcase
+        end
     end
     
     ////
     //// Control FSM
     ////
-    reg [3:0] ctrl_fsm_counter; // holds states
+    reg [3:0] ctrl_fsm_counter = 0; // holds states
     always @(posedge update_data or negedge resetn) begin
         if (~resetn)
             ctrl_fsm_counter <= 'b0; // from reset, send everything.
